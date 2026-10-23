@@ -95,3 +95,59 @@ https://github.com/user-attachments/assets/98e8417e-b5ed-432e-8917-8ff469948cbe
    ```
 
 Pronto! A API estará disponível em `http://localhost:8080/v1/users`.
+
+## ☸️ Executando no Kubernetes
+
+Os manifests em [`k8s/`](./k8s/) criam um namespace, a API com duas réplicas e um PostgreSQL com volume persistente. A API fica disponível internamente no cluster; use `kubectl port-forward` para acessá-la localmente.
+
+1. Inicie um cluster local. Exemplo para Windows Pro com Hyper-V:
+
+   ```powershell
+   minikube start --driver=hyperv --hyperv-virtual-switch="Default Switch" --disk-size=10g --cpus=2 --memory=4096
+   kubectl get nodes
+   ```
+
+   Aguarde o nó ficar `Ready`. O tamanho do disco deve caber no espaço disponível no computador.
+
+2. Gere o JAR e construa a imagem diretamente no Minikube (não requer Docker Desktop):
+
+   ```powershell
+   .\mvnw.cmd package
+   minikube image build --tag api-rest-java:1.0 .
+   ```
+
+   Para Kind, construa a imagem com Docker e carregue-a no cluster:
+
+   ```powershell
+   docker build -t api-rest-java:1.0 .
+   kind load docker-image api-rest-java:1.0
+   ```
+
+   Em outros clusters, publique a imagem em um registry acessível pelos nós e atualize `image` em `k8s/api.yaml`.
+
+3. Crie o namespace e o Secret do banco. Substitua os valores de exemplo, principalmente a senha:
+
+   ```powershell
+   kubectl apply -f k8s/namespace.yaml
+   kubectl create secret generic postgres-credentials -n api-rest `
+     --from-literal=database=db123 `
+     --from-literal=username=user123 `
+     --from-literal=password=password123
+   ```
+
+   O Secret não é armazenado nos manifests. Para produção, use uma senha forte e considere um gerenciador de Secrets; os valores em Secrets do Kubernetes não são criptografados por padrão no etcd.
+
+4. Aplique os manifests e acompanhe os Pods:
+
+   ```powershell
+   kubectl apply -f k8s/
+   kubectl get pods -n api-rest
+   ```
+
+5. Quando os Pods estiverem prontos, encaminhe a porta e acesse a API:
+
+   ```powershell
+   kubectl port-forward -n api-rest service/public-api 8080:8080
+   ```
+
+   A API estará em `http://localhost:8080/v1/users`. O PVC do PostgreSQL requer uma `StorageClass` padrão no cluster. Se alterar o nome do banco no Secret, atualize também `SPRING_DATASOURCE_URL` em `k8s/api.yaml`.
